@@ -25,6 +25,9 @@ const models = {
   Item_Tags: Item_Tags(sequelize),
 };
 
+// Add this line to export the sequelize instance
+models.sequelize = sequelize;
+
 Object.keys(models).forEach((modelName) => {
   if (models[modelName].associate) {
     models[modelName].associate(models);

@@ -19,13 +19,19 @@ const Card = ({ item, onClick }) => {
   };
 
   const handleImageError = () => {
-    console.error(`Failed to load image for ${item.title}`);
+    console.error(`Failed to load image for ${item.title}`, {
+      userId: item.userId,
+      thumbnail: item.thumbnail,
+      fullItem: item
+    });
     setImageError(true);
   };
 
-  const imageUrl = item.thumbnail 
+  const imageUrl = item.thumbnail && item.userId
     ? `${process.env.REACT_APP_API_URL}/uploads/${item.userId}/thumbnails/${item.thumbnail.replace(/\\/g, '/').replace('thumbnails/', '')}`
     : null;
+
+  console.log('Image URL:', imageUrl); // Add this line to log the image URL
 
   const getDomain = (url) => {
     if (!url) return 'No URL';
@@ -43,9 +49,6 @@ const Card = ({ item, onClick }) => {
     }
   };
 
-  console.log('Image URL:', imageUrl);
-  console.log('Is hovered:', isHovered);
-  console.log('Item URL:', item.url);
 
   return (
     <div 

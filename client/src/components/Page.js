@@ -17,17 +17,13 @@ const Page = ({ pinId, onClose }) => {
   const pageRef = useRef(null);
 
   useEffect(() => {
-    console.log('Page component useEffect triggered with pinId:', pinId);
     
     const fetchPinDetails = async () => {
-      console.log('Fetching pin details for pinId:', pinId);
       try {
         const response = await axios.get(`/api/pins/${pinId}`);
-        console.log('Pin details received:', response.data);
         setPin(response.data.pin);
         setNotes(response.data.pin.notes || '');
         setClassification(response.data.pin.classification || '');
-        console.log('Classification set:', response.data.pin.classification);
         setLoading(false);
       } catch (error) {
         console.error('Error fetching pin details:', error);
@@ -195,7 +191,6 @@ const Page = ({ pinId, onClose }) => {
     }
   };
 
-  console.log('Current classification:', classification);
 
   return (
     <div 

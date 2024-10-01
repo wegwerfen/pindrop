@@ -5,7 +5,6 @@ import { SessionAuth } from "supertokens-auth-react/recipe/session";
 import Toolbar from './Toolbar';
 import UserSettingsModal from './UserSettingsModal';
 import axios from '../axiosConfig';
-import { useAccessToken } from '../App';
 import Card from './Card';
 import Page from './Page';
 
@@ -18,10 +17,11 @@ const Hub = () => {
   const dropdownRef = useRef(null);
   const [user, setUser] = useState(null);
   const session = useSessionContext();
-  const accessToken = useAccessToken();
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [pins, setPins] = useState([]);
   const [selectedPin, setSelectedPin] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   const handleLogout = async () => {
     await signOut();
@@ -39,9 +39,7 @@ const Hub = () => {
 
   const handleSaveUserSettings = async (updatedUserData) => {
     try {
-      console.log('Sending update request with data:', updatedUserData);
       const response = await axios.post('/api/user', updatedUserData);
-      console.log('Received response:', response.data);
       
       setUser(prevUser => ({
         ...prevUser,
@@ -108,10 +106,15 @@ const Hub = () => {
   useEffect(() => {
     const fetchPins = async () => {
       try {
+        setLoading(true);
         const response = await axios.get('/api/pins');
+        console.log('Fetched pins:', response.data.pins);
         setPins(response.data.pins);
+        setLoading(false);
       } catch (error) {
-        console.error('Error fetching pins:', error);
+        console.error('Error fetching pins:', error.response?.data || error.message);
+        setError('Failed to fetch pins. Please try again later.');
+        setLoading(false);
       }
     };
 
@@ -164,11 +167,27 @@ const Hub = () => {
             {user && (
               <p className="mb-4">Hello, {user.firstname}!</p>
             )}
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
-              {pins.map(pin => (
-                <Card key={pin.id} item={pin} onClick={() => handleOpenPage(pin)} />
-              ))}
-            </div>
+            {loading ? (
+              <p>Loading pins...</p>
+            ) : error ? (
+              <p className="text-red-500">{error}</p>
+            ) : pins.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
+                {pins.map(pin => (
+                  <Card key={pin.id} item={pin} onClick={() => handleOpenPage(pin)} />
+                ))}
+              </div>
+            ) : (
+              <div>
+                <p>No pins found. Create your first pin!</p>
+                <button 
+                  className="mt-4 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded"
+                  onClick={() => {/* Add function to open create pin modal or navigate to create pin page */}}
+                >
+                  Create New Pin
+                </button>
+              </div>
+            )}
           </main>
         </div>
       </div>

@@ -119,7 +119,6 @@ export const createPin = async (req, res) => {
           thumbnail: thumbnailFilename, // Remove path.join here
         });
 
-        console.log('Pin created:', pin.toJSON());
 
         // Handle tags
         if (analysis.tags && analysis.tags.length > 0) {
@@ -151,10 +150,8 @@ export const createPin = async (req, res) => {
             classification: analysis.classification,
           };
 
-          console.log('Attempting to create Webpage with data:', JSON.stringify(webpageData, null, 2));
 
           const webpage = await Webpage.create(webpageData);
-          console.log('Webpage created:', webpage.toJSON());
         } catch (webpageError) {
           console.error('Error creating webpage:', webpageError);
           console.error('Error name:', webpageError.name);
@@ -222,11 +219,8 @@ export const updatePinNotes = async (req, res) => {
 };
 
 export const getPinDetails = async (req, res) => {
-  console.log('getPinDetails function called');
   const { id } = req.params;
   const userId = req.session.getUserId();
-
-  console.log(`Fetching pin details for pinId: ${id}, userId: ${userId}`);
 
   try {
     const pin = await Pin.findOne({
@@ -237,10 +231,8 @@ export const getPinDetails = async (req, res) => {
       }],
     });
 
-    console.log('Pin query result:', pin ? 'Pin found' : 'Pin not found');
 
     if (!pin) {
-      console.log('Pin not found, sending 404 response');
       return res.status(404).json({ error: 'Pin not found' });
     }
 
@@ -258,7 +250,6 @@ export const getPinDetails = async (req, res) => {
       pinData.classification = pin.Webpage.classification;
     }
 
-    console.log('Pin data being sent:', JSON.stringify(pinData, null, 2));
 
     return res.json({ pin: pinData });
   } catch (error) {
@@ -375,5 +366,33 @@ export const updatePinTags = async (req, res) => {
   } catch (error) {
     console.error('Error updating pin tags:', error);
     res.status(500).json({ error: 'Failed to update pin tags' });
+  }
+};
+
+// Add this new function at the end of the file
+export const getAllPins = async (req, res) => {
+  try {
+    const userId = req.session.getUserId();
+    const pins = await Pin.findAll({
+      where: { userId },
+      order: [['createdAt', 'DESC']],
+      attributes: ['id', 'userId', 'type', 'title', 'thumbnail', 'createdAt'],
+      include: [{
+        model: Webpage,
+        attributes: ['url'],
+      }],
+    });
+
+    // Correct the thumbnail paths and include URL
+    const correctedPins = pins.map(pin => ({
+      ...pin.toJSON(),
+      thumbnail: pin.thumbnail ? `${pin.thumbnail}` : null,
+      url: pin.Webpage ? pin.Webpage.url : null,
+    }));
+
+    res.json({ pins: correctedPins });
+  } catch (error) {
+    console.error('Error fetching pins:', error);
+    res.status(500).json({ error: "Internal server error" });
   }
 };

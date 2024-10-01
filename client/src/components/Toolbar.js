@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Settings, PanelLeftOpen, PanelLeftClose, Plus, Folder, Tag, Globe, Image, FileText } from 'lucide-react';
 import Avatar from './Avatar';
+import AdminModal from './AdminModal'; // Add this import
 
 const Toolbar = ({ 
   panelOpen, 
@@ -19,6 +20,7 @@ const Toolbar = ({
   const webpageDropdownRef = useRef(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [adminModalOpen, setAdminModalOpen] = useState(false); // Add this state
 
   const handleAddClick = (type) => {
     if (type === 'Webpage') {
@@ -50,9 +52,6 @@ const Toolbar = ({
         throw new Error('Failed to save webpage');
       }
 
-      const data = await response.json();
-      console.log('Webpage saved successfully:', data);
-
       setWebpageUrl('');
       setWebpageDropdownOpen(false);
       setAddDropdownOpen(false);
@@ -67,6 +66,11 @@ const Toolbar = ({
   const handleCancelWebpage = () => {
     setWebpageUrl('');
     setWebpageDropdownOpen(false);
+  };
+
+  const handleOpenAdminModal = () => {
+    setAdminModalOpen(true);
+    setDropdownOpen(false);
   };
 
   useEffect(() => {
@@ -200,6 +204,14 @@ const Toolbar = ({
                 >
                   User Settings
                 </button>
+                {user?.isAdmin && (
+                  <button 
+                    onClick={handleOpenAdminModal}
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
+                  >
+                    Admin
+                  </button>
+                )}
                 <button 
                   onClick={handleLogout}
                   className="block w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
@@ -211,6 +223,9 @@ const Toolbar = ({
           </div>
         </div>
       </div>
+      {adminModalOpen && (
+        <AdminModal onClose={() => setAdminModalOpen(false)} />
+      )}
     </div>
   );
 };

@@ -4,13 +4,12 @@ import SuperTokens, { SuperTokensWrapper } from "supertokens-auth-react";
 import { ThirdPartyPreBuiltUI } from 'supertokens-auth-react/recipe/thirdparty/prebuiltui';
 import { EmailPasswordPreBuiltUI } from 'supertokens-auth-react/recipe/emailpassword/prebuiltui';
 import { canHandleRoute, getRoutingComponent } from "supertokens-auth-react/ui";
-import ThirdParty, { Github, Google, Facebook, Apple } from "supertokens-auth-react/recipe/thirdparty";
+import ThirdParty, { Github, Google } from "supertokens-auth-react/recipe/thirdparty";
 import EmailPassword from "supertokens-auth-react/recipe/emailpassword";
 import Session from "supertokens-auth-react/recipe/session";
 import Home from './components/Home';
 import Hub from './components/Hub';
 import ProtectedRoute from './components/ProtectedRoute';
-import axios from './axiosConfig';
 
 SuperTokens.init({
   appInfo: {
@@ -26,8 +25,6 @@ SuperTokens.init({
         providers: [
           Github.init(),
           Google.init(),
-          Facebook.init(),
-          Apple.init(),
         ]
       }
     }),

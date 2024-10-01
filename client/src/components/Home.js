@@ -2,7 +2,6 @@ import React from 'react';
 import { useSessionContext } from "supertokens-auth-react/recipe/session";
 import { redirectToAuth } from "supertokens-auth-react";
 import { useNavigate } from 'react-router-dom';
-import axios from '../axiosConfig';
 
 const Home = () => {
   const sessionContext = useSessionContext();

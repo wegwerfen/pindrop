@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Avatar from './Avatar'; // Add this import
 import axios from 'axios'; // Make sure to import axios
 
@@ -27,9 +27,18 @@ function UserSettingsModal({ user, onClose, onSave }) {
     }
   }, [user]);
 
+  const checkPasswordCriteria = useCallback((password) => {
+    setPasswordCriteria({
+      length: password.length >= 8,
+      lowercase: /[a-z]/.test(password),
+      number: /\d/.test(password),
+      match: password === verifyPassword && password !== '',
+    });
+  }, [verifyPassword]);
+
   useEffect(() => {
     checkPasswordCriteria(newPassword);
-  }, [newPassword, verifyPassword]);
+  }, [newPassword, checkPasswordCriteria]);
 
   if (!user) {
     return null;
@@ -39,18 +48,9 @@ function UserSettingsModal({ user, onClose, onSave }) {
     onSave({ firstName, lastName });
   };
 
-  const checkPasswordCriteria = (password) => {
-    setPasswordCriteria({
-      length: password.length >= 8,
-      lowercase: /[a-z]/.test(password),
-      number: /\d/.test(password),
-      match: password === verifyPassword && password !== '',
-    });
-  };
-
   const handleChangePassword = async () => {
     try {
-      const response = await axios.post('/api/change-password', {
+      const response = await axios.post('/api/user/change-password', {
         oldPassword,
         newPassword
       }, { withCredentials: true });
