@@ -4,192 +4,388 @@ import fetch from 'node-fetch';
 import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import createDOMPurify from 'dompurify';
-import fs from 'fs';
-import * as fsPromises from 'fs/promises';
+import fs from 'fs/promises';
+import { constants } from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import models from '../models/index.js';
-import { analyzeWebpage } from '../services/openaiService.js';
+import { analyzeWebpage, analyzeImage } from '../services/openaiService.js';
 import { Op } from 'sequelize';
+import sharp from 'sharp';
+import multer from 'multer';
+import bodyParser from 'body-parser';
+import {
+  getTempDir,
+  getUserImagesDir,
+  getUserThumbnailsDir,
+  getUserImagePath,
+  getUserThumbnailPath,
+  getUserScreenshotPath,
+  UPLOADS_DIR
+} from '../utils/paths.js';
+import { promisify } from 'util';
+import { rm } from 'fs/promises';
+import { createReadStream } from 'fs';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirnamePath = path.dirname(__filename);
 
 const { Pin, Webpage, Note, Image, Tags } = models;
 
-puppeteer.use(StealthPlugin())
+puppeteer.use(StealthPlugin());
 
 // Create a DOMPurify instance
 const window = new JSDOM('').window;
 const DOMPurify = createDOMPurify(window);
 
+// Configure multer storage to use the temp directory
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, getTempDir());
+  },
+  filename: function (req, file, cb) {
+    cb(null, Date.now() + '-' + file.originalname);
+  }
+});
+
+const upload = multer({ storage: storage });
+
+// Middleware to handle file uploads
+export const uploadMiddleware = (req, res, next) => {
+  const contentType = req.headers['content-type'];
+  console.log('uploadMiddleware - Content-Type:', contentType);
+
+  if (contentType && contentType.startsWith('multipart/form-data')) {
+    upload.any()(req, res, function (err) {
+      if (err instanceof multer.MulterError) {
+        console.error('Multer error:', err);
+        return res.status(400).json({ error: `Multer error: ${err.message}` });
+      } else if (err) {
+        console.error('Unknown error:', err);
+        return res.status(500).json({ error: `Unknown error: ${err.message}` });
+      }
+      console.log('After multer middleware - req.files:', req.files);
+      console.log('After multer middleware - req.body:', JSON.stringify(req.body, null, 2));
+      next();
+    });
+  } else {
+    bodyParser.json()(req, res, (err) => {
+      if (err) {
+        console.error('Body parser error:', err);
+        return res.status(400).json({ error: `Body parser error: ${err.message}` });
+      }
+      console.log('After body parser middleware - req.body:', JSON.stringify(req.body, null, 2));
+      next();
+    });
+  }
+};
+
+// Function to handle image uploads from files
+const handleImageUpload = async (userId, filename, filePath) => {
+  const userThumbnailsDir = getUserThumbnailsDir(userId);
+  await fs.mkdir(userThumbnailsDir, { recursive: true });
+
+  let imageSharp;
+  try {
+    // Read the image into a buffer
+    const buffer = await fs.readFile(filePath);
+
+    // Create thumbnail using the buffer
+    const thumbnailFilename = `thumb_${filename}`;
+    const thumbnailPath = getUserThumbnailPath(userId, thumbnailFilename);
+
+    imageSharp = sharp(buffer);
+    await imageSharp
+      .resize(512, 512, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
+      .toFile(thumbnailPath);
+
+    const metadata = await imageSharp.metadata();
+
+    // Create a new Pin
+    const pin = await Pin.create({
+      userId,
+      type: 'image',
+      title: filename,
+      thumbnail: thumbnailFilename,
+    });
+
+    // Analyze the image using the buffer
+    const analysis = await analyzeImage(buffer, userId);
+console.log('Analysis:', analysis);
+    // Handle tags
+    if (analysis.tags && analysis.tags.length > 0) {
+      const tagNames = analysis.tags.map(tag => tag.trim().toLowerCase());
+      const tags = await Promise.all(tagNames.map(name => 
+        Tags.findOrCreate({ where: { name } })
+      ));
+      await pin.setTags(tags.map(tag => tag[0]));
+    }
+
+    await Image.create({
+      pinId: pin.id,
+      filePath: path.relative(UPLOADS_DIR, filePath),
+      width: metadata.width,
+      height: metadata.height,
+      type: metadata.format,
+      description: analysis.description,
+    });
+
+    // Ensure consistent permissions
+    await fs.chmod(filePath, 0o644);
+    await fs.chmod(thumbnailPath, 0o644);
+
+    return pin;
+  } catch (error) {
+    console.error('Error processing uploaded image:', error);
+    throw new Error('Failed to process uploaded image');
+  } finally {
+    if (imageSharp) {
+      imageSharp.destroy();
+    }
+  }
+};
+
+// Function to handle image uploads via URL
+export const handleImageUrl = async (userId, imageUrl) => {
+  try {
+    console.log('Fetching image from URL:', imageUrl);
+    const response = await fetch(imageUrl);
+    if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
+    const buffer = await response.buffer();
+
+    const filename = `${Date.now()}-${path.basename(imageUrl).split('?')[0]}`; // Remove query params if any
+    const filePath = getUserImagePath(userId, filename);
+
+    console.log('Creating directory:', path.dirname(filePath));
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+
+    console.log('Saving image to:', filePath);
+    await fs.writeFile(filePath, buffer);
+
+    console.log('Getting image metadata');
+    const metadata = await sharp(buffer).metadata();
+
+    const thumbnailFilename = `thumb_${filename}`;
+    const thumbnailPath = getUserThumbnailPath(userId, thumbnailFilename);
+    console.log('Creating thumbnail:', thumbnailPath);
+    await sharp(buffer)
+      .resize(200, 200, { fit: 'inside' })
+      .toFile(thumbnailPath);
+
+    console.log('Creating pin record');
+    const pin = await Pin.create({
+      userId,
+      type: 'image',
+      title: path.basename(imageUrl),
+      thumbnail: thumbnailFilename,
+    });
+
+    console.log('Analyzing image');
+    // **Pass the buffer instead of the filePath**
+    const analysis = await analyzeImage(buffer, userId);
+    console.log('Analysis:', analysis);
+    
+    console.log('Creating image record');
+    await Image.create({
+      pinId: pin.id,
+      filePath: path.join(userId.toString(), 'images', filename), // Store relative path
+      width: metadata.width,
+      height: metadata.height,
+      type: metadata.format,
+      description: analysis.description || 'No description available',
+    });
+
+    console.log('Handling tags');
+    if (analysis.tags && analysis.tags.length > 0) {
+      const tagNames = analysis.tags.map(tag => tag.trim().toLowerCase());
+      const tags = await Promise.all(tagNames.map(name => 
+        Tags.findOrCreate({ where: { name } })
+      ));
+      await pin.setTags(tags.map(tag => tag[0]));
+    }
+
+    return pin;
+  } catch (error) {
+    console.error('Error processing image URL:', error);
+    throw new Error(`Failed to process image URL: ${error.message}`);
+  }
+};
+
+// Existing function: createPin
 export const createPin = async (req, res) => {
-  const { type, url } = req.body;
+  console.log('createPin - req.body:', JSON.stringify(req.body, null, 2));
+  console.log('createPin - req.files:', req.files);
+  console.log('createPin - Content-Type:', req.headers['content-type']);
+
+  let type = req.body.type;
+  let url = req.body.url;
   const userId = req.session.getUserId();
 
+  console.log('Type:', type);
+  console.log('URL:', url);
+  console.log('UserId:', userId);
+
+  if (!type) {
+    return res.status(400).json({ error: 'Invalid request: No type provided' });
+  }
+
   try {
-    switch (type) {
-      case 'webpage':
-        // Move Puppeteer code to the beginning
-        const browser = await puppeteer.launch({ headless: true });
-        const page = await browser.newPage();
-        await page.setViewport({ width: 1440, height: 718 });
-        await page.goto(url, { waitUntil: 'networkidle2' });
+    let pin;
+    if (type === 'image') {
+      if (req.files && req.files.length > 0) {
+        // Handle local file upload
+        const file = req.files[0];
+        const tempPath = file.path;
+        const filename = file.originalname;
+        
+        // Move file from temp to user's directory
+        const userImagesDir = getUserImagesDir(userId);
+        await fs.mkdir(userImagesDir, { recursive: true });
+        const newFilename = `${Date.now()}-${filename}`;
+        const newFilePath = getUserImagePath(userId, newFilename);
+        await fs.rename(tempPath, newFilePath);
+        
+        pin = await handleImageUpload(userId, newFilename, newFilePath);
+      } else if (url) {
+        // Handle image URL
+        pin = await handleImageUrl(userId, url);
+      } else {
+        return res.status(400).json({ error: 'No image file or URL provided' });
+      }
+    } else if (type === 'webpage') {
+      if (!url) {
+        return res.status(400).json({ error: 'No URL provided for webpage' });
+      }
+      // Existing webpage handling code
+      const browser = await puppeteer.launch({ headless: true });
+      const page = await browser.newPage();
+      await page.setViewport({ width: 1440, height: 718 });
+      await page.goto(url, { waitUntil: 'networkidle2' });
 
-        // Create directories for user if they don't exist
-        const userDir = path.join('uploads', userId.toString());
-        const screenshotDir = path.join(userDir, 'screenshots');
-        const thumbnailDir = path.join(userDir, 'thumbnails');
-        if (!fs.existsSync(userDir)) await fsPromises.mkdir(userDir, { recursive: true });
-        if (!fs.existsSync(screenshotDir)) await fsPromises.mkdir(screenshotDir, { recursive: true });
-        if (!fs.existsSync(thumbnailDir)) await fsPromises.mkdir(thumbnailDir, { recursive: true });
+      // Create directories for user if they don't exist
+      const screenshotDir = getUserImagesDir(userId); // Update if screenshots are stored differently
+      const thumbnailDir = getUserThumbnailsDir(userId);
+      await fs.mkdir(screenshotDir, { recursive: true });
+      await fs.mkdir(thumbnailDir, { recursive: true });
 
-        // Generate filenames
-        const baseFilename = `${Date.now()}`;
-        const fullScreenshotFilename = `${baseFilename}-full.webp`;
-        const thumbnailFilename = `${baseFilename}-thumb.webp`;
+      // Generate filenames
+      const baseFilename = `${Date.now()}`;
+      const fullScreenshotFilename = `${baseFilename}-full.webp`;
+      const thumbnailFilename = `${baseFilename}-thumb.webp`;
 
-        // Capture full page screenshot
-        await page.screenshot({
-          path: path.join(screenshotDir, fullScreenshotFilename),
-          fullPage: true,
-          type: 'webp',
-        });
+      // Capture full page screenshot
+      await page.screenshot({
+        path: getUserImagePath(userId, fullScreenshotFilename),
+        fullPage: true,
+        type: 'webp',
+      });
 
-        // Capture viewport screenshot
-        await page.screenshot({
-          path: path.join(thumbnailDir, thumbnailFilename),
-          fullPage: false,
-          type: 'webp',
-        });
+      // Capture viewport screenshot
+      await page.screenshot({
+        path: getUserThumbnailPath(userId, thumbnailFilename),
+        fullPage: false,
+        type: 'webp',
+      });
 
-        // Grab the page content
-        const html = await page.content();
+      // Grab the page content
+      const html = await page.content();
 
-        // Close the browser
-        await browser.close();
+      // Close the browser
+      await browser.close();
 
-        // Process the HTML content through Readability
-        const dom = new JSDOM(html, { url });
-        const reader = new Readability(dom.window.document, {
-          charThreshold: 0, // Lower the character threshold
-          classesToPreserve: [], // Preserve all classes
-        });
-        let article = reader.parse();
+      // Process the HTML content through Readability
+      const dom = new JSDOM(html, { url });
+      const reader = new Readability(dom.window.document, {
+        charThreshold: 0,
+        classesToPreserve: [],
+      });
+      let article = reader.parse();
 
-        // Check if article is null or has no content
-        if (!article || !article.content) {
-          // Fallback to using the original HTML if Readability fails
-          article = {
-            content: html,
-            title: dom.window.document.title || url,
-            textContent: dom.window.document.body.textContent || '',
-            length: html.length,
-            excerpt: dom.window.document.body.textContent.slice(0, 200) || '',
-            byline: '',
-            siteName: '',
-            lang: dom.window.document.documentElement.lang || '',
-          };
-        }
-        // clean HTML
-        const cleanHtml = DOMPurify.sanitize(html);
-        const cleanDom = new JSDOM(cleanHtml);
-        const cleanDocument = cleanDom.window.document;
+      // Check if article is null or has no content
+      if (!article || !article.content) {
+        article = {
+          content: html,
+          title: dom.window.document.title || url,
+          textContent: dom.window.document.body.textContent || '',
+          length: html.length,
+          excerpt: dom.window.document.body.textContent.slice(0, 200) || '',
+          byline: '',
+          siteName: '',
+          lang: dom.window.document.documentElement.lang || '',
+        };
+      }
 
-        // 1. Remove all <script> tags
-        cleanDocument.querySelectorAll('script').forEach(el => el.remove());
+      // Clean HTML
+      const cleanHtml = DOMPurify.sanitize(html);
+      const cleanDom = new JSDOM(cleanHtml);
+      const cleanDocument = cleanDom.window.document;
 
-        // 2. Add a class to all <a> tags
-        cleanDocument.querySelectorAll('a').forEach(el => el.classList.add('external-link'));
+      // Remove scripts, modify links, wrap content
+      cleanDocument.querySelectorAll('script').forEach(el => el.remove());
+      cleanDocument.querySelectorAll('a').forEach(el => el.classList.add('external-link'));
+      const wrapper = cleanDocument.createElement('div');
+      wrapper.className = 'external-content bg-gray-950 shadow-lg rounded-lg';
+      wrapper.innerHTML = cleanDocument.body.innerHTML;
+      cleanDocument.body.innerHTML = '';
+      cleanDocument.body.appendChild(wrapper);
 
-        // 3. Wrap the content in a div with custom classes
-        const wrapper = cleanDocument.createElement('div');
-        wrapper.className = 'external-content bg-gray-950 shadow-lg rounded-lg';
-        wrapper.innerHTML = cleanDocument.body.innerHTML;
-        cleanDocument.body.innerHTML = '';
-        cleanDocument.body.appendChild(wrapper);
+      const Html = cleanDom.serialize();
 
-        // Get the modified HTML
-        const Html = cleanDom.serialize();
+      // Analyze webpage content
+      const analysis = await analyzeWebpage(article.textContent);
 
-        // Analyze webpage content
-        const analysis = await analyzeWebpage(article.textContent);
-
-        // Create a new Pin
-        const pin = await Pin.create({
-          userId,
-          type,
-          title: article.title || url,
-          thumbnail: thumbnailFilename, // Remove path.join here
-        });
-
-
-        // Handle tags
-        if (analysis.tags && analysis.tags.length > 0) {
-          const tagNames = analysis.tags.map(tag => tag.trim().toLowerCase());
-          
-          // Find existing tags or create new ones
-          const tags = await Promise.all(tagNames.map(name => 
-            Tags.findOrCreate({ where: { name } })
-          ));
-
-          // Associate tags with the pin
-          await pin.setTags(tags.map(tag => tag[0]));
-        }
-
-        // Create a new Webpage associated with the Pin
-        try {
-          const webpageData = {
-            pinId: pin.id,
-            content: article.content || '',
-            textContent: article.textContent || '',
-            cleanContent: Html,
-            length: article.length || 0,
-            excerpt: analysis.summary,
-            byline: article.byline || '',
-            siteName: article.siteName || '',
-            url: url,
-            lang: article.lang || '',
-            screenshot: fullScreenshotFilename, // Remove path.join here
-            classification: analysis.classification,
-          };
+      // Create a new Pin
+      pin = await Pin.create({
+        userId,
+        type,
+        title: article.title || url,
+        thumbnail: thumbnailFilename,
+      });
 
 
-          const webpage = await Webpage.create(webpageData);
-        } catch (webpageError) {
-          console.error('Error creating webpage:', webpageError);
-          console.error('Error name:', webpageError.name);
-          console.error('Error message:', webpageError.message);
-          if (webpageError.errors) {
-            console.error('Validation errors:', webpageError.errors);
-          }
-          throw webpageError;
-        }
+      // Handle tags
+      if (analysis.tags && analysis.tags.length > 0) {
+        const tagNames = analysis.tags.map(tag => tag.trim().toLowerCase());
+        const tags = await Promise.all(tagNames.map(name => 
+          Tags.findOrCreate({ where: { name } })
+        ));
+        await pin.setTags(tags.map(tag => tag[0]));
+      }
 
-        res.status(201).json({ message: 'Webpage pin created successfully', pin });
-        break;
+      // Create a new Webpage associated with the Pin
+      try {
+        const webpageData = {
+          pinId: pin.id,
+          content: article.content || '',
+          textContent: article.textContent || '',
+          cleanContent: Html,
+          length: article.length || 0,
+          excerpt: analysis.summary,
+          byline: article.byline || '',
+          siteName: article.siteName || '',
+          url: url,
+          lang: article.lang || '',
+          screenshot: fullScreenshotFilename,
+          classification: analysis.classification,
+        };
 
-      case 'image':
-        // Handle image pin creation
-        // ... implement image pin logic ...
-        res.status(501).json({ message: 'Image pin creation not implemented yet' });
-        break;
-
-      case 'note':
-        // Handle note pin creation
-        // ... implement note pin logic ...
-        res.status(501).json({ message: 'Note pin creation not implemented yet' });
-        break;
-
-      default:
-        res.status(400).json({ error: 'Invalid pin type' });
-        break;
+        await Webpage.create(webpageData);
+      } catch (webpageError) {
+        console.error('Error creating webpage:', webpageError);
+        throw webpageError;
+      }
+    } else {
+      return res.status(400).json({ error: 'Invalid pin type' });
     }
+
+    res.status(201).json({ pin });
   } catch (error) {
     console.error('Error creating pin:', error);
-    console.error('Error name:', error.name);
-    console.error('Error message:', error.message);
-    console.error('Error stack:', error.stack);
     res.status(500).json({ error: 'Failed to create pin: ' + error.message });
   }
 };
 
+// Function to update pin notes - example (ensure this remains unchanged)
 export const updatePinNotes = async (req, res) => {
   const { id } = req.params;
   const { notes } = req.body;
@@ -225,12 +421,22 @@ export const getPinDetails = async (req, res) => {
   try {
     const pin = await Pin.findOne({
       where: { id, userId },
-      include: [{
-        model: Webpage,
-        attributes: ['url', 'content', 'textContent', 'cleanContent', 'excerpt', 'screenshot', 'notes', 'classification'],
-      }],
+      include: [
+        {
+          model: Webpage,
+          attributes: { exclude: ['id'] },
+        },
+        {
+          model: Image,
+          attributes: ['filePath', 'width', 'height', 'type', 'description'],
+        },
+        {
+          model: Tags,
+          through: { attributes: [] },
+          attributes: ['name'],
+        },
+      ],
     });
-
 
     if (!pin) {
       return res.status(404).json({ error: 'Pin not found' });
@@ -238,18 +444,17 @@ export const getPinDetails = async (req, res) => {
 
     const pinData = pin.toJSON();
 
-    // Add the webpage data to the pin object if it exists
-    if (pin.Webpage) {
-      pinData.url = pin.Webpage.url;
-      pinData.content = pin.Webpage.content;
-      pinData.textContent = pin.Webpage.textContent;
-      pinData.cleanContent = pin.Webpage.cleanContent;
-      pinData.excerpt = pin.Webpage.excerpt;
-      pinData.screenshot = pin.Webpage.screenshot;
-      pinData.notes = pin.Webpage.notes;
-      pinData.classification = pin.Webpage.classification;
+    // Flatten the image data if it exists
+    if (pin.type === 'image' && pinData.Images && pinData.Images.length > 0) {
+      pinData.image = pinData.Images[0];
+      delete pinData.Images;
     }
 
+    // Include tags
+    pinData.tags = pinData.Tags.map(tag => tag.name);
+    delete pinData.Tags;
+
+    console.log('Sending pin data:', pinData);
 
     return res.json({ pin: pinData });
   } catch (error) {
@@ -257,6 +462,51 @@ export const getPinDetails = async (req, res) => {
     return res.status(500).json({ error: 'Failed to fetch pin details' });
   }
 };
+
+// Keep track of open file handles
+const openHandles = new Map();
+
+// Function to safely open a file and track its handle
+async function safeOpenFile(filePath) {
+  const handle = await fs.open(filePath, 'r');
+  openHandles.set(filePath, handle);
+  return handle;
+}
+
+// Function to safely close a file handle
+async function safeCloseFile(filePath) {
+  const handle = openHandles.get(filePath);
+  if (handle) {
+    await handle.close();
+    openHandles.delete(filePath);
+    console.log(`Closed file handle for: ${filePath}`);
+  }
+}
+
+// Modified function to create a read stream
+function createSafeReadStream(filePath) {
+  const stream = createReadStream(filePath);
+  stream.on('close', () => safeCloseFile(filePath));
+  return stream;
+}
+
+async function deleteFileWithRetry(filePath, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await safeCloseFile(filePath);
+      await fs.unlink(filePath);
+      console.log(`Successfully deleted file: ${filePath}`);
+      return;
+    } catch (error) {
+      console.error(`Attempt ${i + 1} failed to delete file: ${filePath}`, error);
+      if (i < retries - 1) {
+        console.log(`Retrying in 1 second...`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+  }
+  console.error(`Failed to delete file after ${retries} attempts: ${filePath}`);
+}
 
 export const deletePin = async (req, res) => {
   const { id } = req.params;
@@ -272,44 +522,41 @@ export const deletePin = async (req, res) => {
       return res.status(404).json({ error: "Pin not found" });
     }
 
-    // 1. Delete associated data based on pin type
+    console.log('Deleting pin:', JSON.stringify(pin, null, 2));
+
     switch (pin.type) {
+      case 'image':
+        if (pin.Images && pin.Images.length > 0) {
+          const image = pin.Images[0];
+          const imagePath = path.join(UPLOADS_DIR, image.filePath);
+          const thumbnailPath = getUserThumbnailPath(userId, pin.thumbnail);
+
+          console.log('Attempting to delete image:', imagePath);
+          await fs.unlink(imagePath);
+
+          console.log('Attempting to delete thumbnail:', thumbnailPath);
+          await fs.unlink(thumbnailPath);
+
+          await image.destroy();
+        }
+        break;
       case 'webpage':
+        if (pin.Webpage && pin.Webpage.screenshot) {
+          const screenshotPath = getUserScreenshotPath(userId, pin.Webpage.screenshot);
+          console.log('Attempting to delete screenshot:', screenshotPath);
+          await fs.unlink(screenshotPath);
+        }
+        if (pin.thumbnail) {
+          const thumbnailPath = getUserThumbnailPath(userId, pin.thumbnail);
+          console.log('Attempting to delete thumbnail:', thumbnailPath);
+          await fs.unlink(thumbnailPath);
+        }
         if (pin.Webpage) {
           await pin.Webpage.destroy();
         }
         break;
-      case 'note':
-        if (pin.Note) {
-          await pin.Note.destroy();
-        }
-        break;
-      case 'image':
-        if (pin.Image) {
-          await pin.Image.destroy();
-        }
-        break;
-      // Add more cases for other pin types if needed
     }
 
-    // 2. Delete associated assets
-    const userDir = path.join('uploads', userId.toString());
-    const assetsToDelete = [
-      pin.thumbnail ? path.join(userDir, 'thumbnails', pin.thumbnail) : null,
-      pin.Webpage?.screenshot ? path.join(userDir, 'screenshots', pin.Webpage.screenshot) : null,
-      // Add more asset paths if needed
-    ].filter(Boolean);
-
-    for (const assetPath of assetsToDelete) {
-      try {
-        await fs.unlink(assetPath);
-      } catch (error) {
-        console.error(`Failed to delete asset: ${assetPath}`, error);
-        // Continue with deletion even if an asset fails to delete
-      }
-    }
-
-    // 3. Delete the pin itself
     await pin.destroy();
 
     res.json({ message: "Pin and associated data deleted successfully" });
@@ -319,7 +566,26 @@ export const deletePin = async (req, res) => {
   }
 };
 
-// Add this new function to get tags for a pin
+// Cleanup routine
+async function cleanupOpenHandles() {
+  console.log('Running cleanup routine...');
+  for (const [filePath, handle] of openHandles.entries()) {
+    try {
+      await handle.close();
+      openHandles.delete(filePath);
+      console.log(`Closed lingering handle for: ${filePath}`);
+      await fs.unlink(filePath);
+      console.log(`Deleted file during cleanup: ${filePath}`);
+    } catch (error) {
+      console.error(`Error during cleanup for ${filePath}:`, error);
+    }
+  }
+}
+
+// Run cleanup every 5 minutes
+setInterval(cleanupOpenHandles, 5 * 60 * 1000);
+
+// Function to get pin tags - example (ensure this remains unchanged)
 export const getPinTags = async (req, res) => {
   const { id } = req.params;
   const userId = req.session.getUserId();
@@ -341,7 +607,7 @@ export const getPinTags = async (req, res) => {
   }
 };
 
-// Add this new function to update tags for a pin
+// Function to update pin tags - example (ensure this remains unchanged)
 export const updatePinTags = async (req, res) => {
   const { id } = req.params;
   const { tags } = req.body;
@@ -369,7 +635,7 @@ export const updatePinTags = async (req, res) => {
   }
 };
 
-// Add this new function at the end of the file
+// Function to get all pins - example (ensure this remains unchanged)
 export const getAllPins = async (req, res) => {
   try {
     const userId = req.session.getUserId();

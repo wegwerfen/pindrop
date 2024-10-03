@@ -27,4 +27,13 @@ export const WEBPAGE_ANALYSIS_PROMPT = `Give a short, one paragraph summary of t
 }
 
 text:`;
+
+export const IMAGE_ANALYSIS_PROMPT = `Analyze the provided image and generate a detailed description of its content. Include key objects, colors, and themes. After the description, suggest up to 6 tags that summarize the main elements, topics, or objects in the image. Provide the output in the following JSON formatonly. Do not include any Markdown syntax, code blocks, or additional text.
+Format:
+{
+  "description": "Your description here.",
+  "tags": ["tag1", "tag2", "tag3"]
+}
+Image Data:
+`;
 // Add more prompts here as needed

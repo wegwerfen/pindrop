@@ -31,8 +31,6 @@ const Card = ({ item, onClick }) => {
     ? `${process.env.REACT_APP_API_URL}/uploads/${item.userId}/thumbnails/${item.thumbnail.replace(/\\/g, '/').replace('thumbnails/', '')}`
     : null;
 
-  console.log('Image URL:', imageUrl); // Add this line to log the image URL
-
   const getDomain = (url) => {
     if (!url) return 'No URL';
     try {
@@ -49,7 +47,6 @@ const Card = ({ item, onClick }) => {
     }
   };
 
-
   return (
     <div 
       className="bg-gray-800 rounded-lg shadow-[0_10px_20px_rgba(0,0,0,0.2)] hover:shadow-[0_0_15px_rgba(59,130,246,0.5)] transition-all duration-300 overflow-hidden transform hover:-translate-y-1 relative cursor-pointer z-40"
@@ -57,7 +54,7 @@ const Card = ({ item, onClick }) => {
       onMouseLeave={() => setIsHovered(false)}
       onClick={onClick}
     >
-      <div className="h-1/2 bg-gray-700 overflow-hidden flex items-center justify-center">
+      <div className="aspect-w-16 aspect-h-9 bg-gray-700 overflow-hidden">
         {imageUrl && !imageError ? (
           <img
             src={imageUrl}
@@ -66,7 +63,9 @@ const Card = ({ item, onClick }) => {
             onError={handleImageError}
           />
         ) : (
-          getIconForType(item.type)
+          <div className="flex items-center justify-center w-full h-full">
+            {getIconForType(item.type)}
+          </div>
         )}
       </div>
       <div className="p-4">

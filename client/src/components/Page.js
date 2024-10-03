@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { MousePointerClick, Image, FileText, ExternalLink, Trash2, Plus, Tag } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { MousePointerClick, Image, FileText, ExternalLink, Trash2, Plus, Tag, Download, Maximize } from 'lucide-react';
 import axios from '../axiosConfig';
 
 const Page = ({ pinId, onClose }) => {
@@ -13,17 +13,26 @@ const Page = ({ pinId, onClose }) => {
   const [isAddingTag, setIsAddingTag] = useState(false);
   const [newTag, setNewTag] = useState('');
   const [classification, setClassification] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  const [imageError, setImageError] = useState(false);
 
   const pageRef = useRef(null);
 
   useEffect(() => {
-    
     const fetchPinDetails = async () => {
       try {
         const response = await axios.get(`/api/pins/${pinId}`);
+        console.log('Pin details:', response.data.pin);
         setPin(response.data.pin);
         setNotes(response.data.pin.notes || '');
         setClassification(response.data.pin.classification || '');
+        if (response.data.pin.type === 'image' && response.data.pin.image && response.data.pin.image.filePath) {
+          const fullImageUrl = `${process.env.REACT_APP_API_URL}/uploads/${response.data.pin.image.filePath}`;
+          console.log('Setting image URL:', fullImageUrl);
+          setImageUrl(fullImageUrl);
+        }
+        // Set tags from the pin data
+        setTags(response.data.pin.tags || []);
         setLoading(false);
       } catch (error) {
         console.error('Error fetching pin details:', error);
@@ -31,17 +40,7 @@ const Page = ({ pinId, onClose }) => {
       }
     };
 
-    const fetchTags = async () => {
-      try {
-        const response = await axios.get(`/api/pins/${pinId}/tags`);
-        setTags(response.data.tags);
-      } catch (error) {
-        console.error('Error fetching tags:', error);
-      }
-    };
-
     fetchPinDetails();
-    fetchTags();
   }, [pinId]);
 
   useEffect(() => {
@@ -70,8 +69,146 @@ const Page = ({ pinId, onClose }) => {
     };
   }, []);
 
-  if (loading) return <div>Loading...</div>;
-  if (!pin) return null;
+  const handleDeleteConfirm = useCallback(async () => {
+    try {
+      if (pin && pin.type === 'image' && pin.image && pin.image.filePath) {
+        setImageUrl(''); // This will unmount the img element
+      }
+
+      // Wait a bit to ensure the browser has released the file
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      await axios.delete(`/api/pins/${pinId}`);
+      onClose(); // Close the page after successful deletion
+    } catch (error) {
+      console.error('Error deleting pin:', error);
+      // Optionally, show an error message to the user
+    }
+    setShowDeleteConfirmation(false);
+  }, [pin, pinId, onClose]);
+
+  const handleDeleteClick = useCallback(() => {
+    setShowDeleteConfirmation(true);
+  }, []);
+
+  const handleDeleteCancel = useCallback(() => {
+    setShowDeleteConfirmation(false);
+  }, []);
+
+  const renderLeftSection = useCallback(() => {
+    if (!pin) return null;
+
+    console.log('Rendering left section for pin:', pin);
+
+    if (pin.type === 'webpage') {
+      const htmlContent = pin.Webpage?.cleanContent || '';
+      const screenshotPath = pin.Webpage?.screenshot || null;
+
+      console.log('Screenshot path:', screenshotPath);
+      console.log('HTML content length:', htmlContent.length);
+
+      return (
+        <div className="h-full flex flex-col relative">
+          <div className="flex-grow overflow-auto custom-scrollbar">
+            {viewMode === 'screenshot' ? (
+              screenshotPath ? (
+                <img 
+                  src={`/uploads/${pin.userId}/screenshots/${screenshotPath}`} 
+                  alt="Webpage screenshot" 
+                  className="w-full" 
+                  onError={(e) => {
+                    console.error('Error loading screenshot:', e);
+                    e.target.src = '/path/to/fallback/image.jpg'; // Replace with an actual fallback image path
+                  }}
+                />
+              ) : (
+                <div className="text-white p-4">
+                  No screenshot available. Debug info: 
+                  <pre>{JSON.stringify({ screenshot: pin.Webpage?.screenshot, userId: pin.userId }, null, 2)}</pre>
+                </div>
+              )
+            ) : (
+              htmlContent ? (
+                <div 
+                  className="prose prose-invert max-w-none overflow-auto h-full p-4 bg-gray-950 text-gray-200 custom-scrollbar"
+                  dangerouslySetInnerHTML={{ __html: htmlContent }}
+                />
+              ) : (
+                <div className="text-white p-4">No content available</div>
+              )
+            )}
+          </div>
+          <div className="absolute bottom-4 left-4 flex">
+            <button
+              className={`mr-2 p-2 rounded-full ${viewMode === 'screenshot' ? 'bg-blue-500' : 'bg-gray-700'} opacity-75 hover:opacity-100 transition-opacity`}
+              onClick={() => setViewMode('screenshot')}
+            >
+              <Image size={20} />
+            </button>
+            <button
+              className={`p-2 rounded-full ${viewMode === 'reader' ? 'bg-blue-500' : 'bg-gray-700'} opacity-75 hover:opacity-100 transition-opacity`}
+              onClick={() => setViewMode('reader')}
+            >
+              <FileText size={20} />
+            </button>
+          </div>
+        </div>
+      );
+    } else if (pin.type === 'image') {
+      console.log('Rendering image pin:', pin);
+      if (!imageUrl) {
+        console.log('Image URL is missing');
+        return <div className="text-white">Image not found</div>;
+      }
+
+      return (
+        <div className="h-full bg-gray-950 flex flex-col items-center justify-center custom-scrollbar relative">
+          {!imageError ? (
+            <>
+              <img 
+                src={imageUrl}
+                alt={pin.title} 
+                className="max-w-full max-h-[80%] object-contain mb-4" 
+                onError={() => {
+                  console.error('Error loading image:', imageUrl);
+                  setImageError(true);
+                }}
+              />
+              <div className="absolute bottom-4 left-4 flex">
+                <a
+                  href={imageUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mr-2 p-2 rounded-full bg-gray-700 opacity-75 hover:opacity-100 transition-opacity"
+                  title="Open in new tab"
+                >
+                  <Maximize size={20} />
+                </a>
+                <a
+                  href={imageUrl}
+                  download={`${pin.title || 'image'}.${pin.image.type}`}
+                  className="p-2 rounded-full bg-gray-700 opacity-75 hover:opacity-100 transition-opacity"
+                  title="Download image"
+                >
+                  <Download size={20} />
+                </a>
+              </div>
+            </>
+          ) : (
+            <div className="text-white">Error loading image</div>
+          )}
+        </div>
+      );
+    }
+  }, [pin, imageUrl, imageError, viewMode]);
+
+  if (loading) {
+    return <div>Loading...</div>;
+  }
+
+  if (!pin) {
+    return null;
+  }
 
   const getDomain = (url) => {
     if (!url) return 'No URL';
@@ -101,25 +238,6 @@ const Page = ({ pinId, onClose }) => {
     }
   };
 
-  const handleDeleteClick = () => {
-    setShowDeleteConfirmation(true);
-  };
-
-  const handleDeleteConfirm = async () => {
-    try {
-      await axios.delete(`/api/pins/${pinId}`);
-      onClose(); // Close the page after successful deletion
-    } catch (error) {
-      console.error('Error deleting pin:', error);
-      // Optionally, show an error message to the user
-    }
-    setShowDeleteConfirmation(false);
-  };
-
-  const handleDeleteCancel = () => {
-    setShowDeleteConfirmation(false);
-  };
-
   const handleAddTag = async () => {
     if (newTag.trim()) {
       try {
@@ -142,55 +260,6 @@ const Page = ({ pinId, onClose }) => {
       console.error('Error removing tag:', error);
     }
   };
-
-  const renderLeftSection = () => {
-    if (pin.type === 'webpage') {
-      const htmlContent = pin.cleanContent || '';
-
-      return (
-        <div className="h-full flex flex-col relative">
-          <div className="flex-grow overflow-auto custom-scrollbar">
-            {viewMode === 'screenshot' ? (
-              <img src={`/uploads/${pin.userId}/screenshots/${pin.screenshot}`} alt="Webpage screenshot" className="w-full" />
-            ) : (
-              <div 
-                className="prose prose-invert max-w-none overflow-auto h-full p-4 bg-gray-950 text-gray-200 custom-scrollbar"
-                dangerouslySetInnerHTML={{ __html: htmlContent }}
-              />
-            )}
-          </div>
-          <div className="absolute bottom-4 left-4 flex">
-            <button
-              className={`mr-2 p-2 rounded-full ${viewMode === 'screenshot' ? 'bg-blue-500' : 'bg-gray-700'} opacity-75 hover:opacity-100 transition-opacity`}
-              onClick={() => setViewMode('screenshot')}
-            >
-              <Image size={20} />
-            </button>
-            <button
-              className={`p-2 rounded-full ${viewMode === 'reader' ? 'bg-blue-500' : 'bg-gray-700'} opacity-75 hover:opacity-100 transition-opacity`}
-              onClick={() => setViewMode('reader')}
-            >
-              <FileText size={20} />
-            </button>
-          </div>
-        </div>
-      );
-    } else if (pin.type === 'note') {
-      return (
-        <div 
-          className="prose prose-invert max-w-none overflow-auto h-full p-4 bg-gray-950 text-gray-200 custom-scrollbar"
-          
-        />
-      );
-    } else if (pin.type === 'image') {
-      return (
-        <div className="h-full bg-gray-950 flex items-center justify-center custom-scrollbar">
-          <img src={`/uploads/${pin.userId}/images/${pin.filePath}`} alt={pin.title} className="max-w-full max-h-full object-contain" />
-        </div>
-      );
-    }
-  };
-
 
   return (
     <div 
@@ -220,10 +289,10 @@ const Page = ({ pinId, onClose }) => {
           <div className="w-2 bg-gray-950" /> {/* 8px spacer */}
           <div className="w-[400px] flex-shrink-0 bg-gray-950 rounded-lg overflow-hidden flex flex-col">
             <div className="p-4 bg-gray-800 border-b border-gray-700">
-              <h2 className="text-xl font-semibold mb-2 text-white truncate" title={pin.title}>{pin.title}</h2>
+              <h2 className="text-xl font-semibold mb-2 text-white truncate" title={pin?.title}>{pin?.title}</h2>
               <div className="flex justify-between items-center text-sm text-gray-400">
-                <span>Pinned: {new Date(pin.created).toLocaleDateString()}</span>
-                {pin.url && (
+                <span>Pinned: {pin?.createdAt && new Date(pin.createdAt).toLocaleDateString()}</span>
+                {pin?.url && (
                   <div 
                     className="flex items-center cursor-pointer hover:text-blue-400 transition-colors duration-200"
                     onClick={handleLinkClick}
@@ -235,11 +304,22 @@ const Page = ({ pinId, onClose }) => {
               </div>
             </div>
             <div className="flex-1 overflow-y-auto custom-scrollbar p-4 bg-gray-900">
-              <p className="text-gray-300 mb-1">Type: {pin.type}</p>
+              <p className="text-gray-300 mb-1">Type: {pin?.type}</p>
+              {pin?.type === 'image' && pin?.image && (
+                <div className="mt-4">
+                  <h3 className="text-lg font-semibold text-white mb-2">Image Details</h3>
+                  <p className="text-gray-300">Size: {pin.image.width}x{pin.image.height}</p>
+                  <p className="text-gray-300">Format: {pin.image.type}</p>
+                </div>
+              )}
               <div className="mt-4">
                 <h3 className="text-lg font-semibold text-white mb-2">Summary</h3>
                 <div className="bg-gray-900 border-2 border-blue-400 rounded-lg p-3">
-                  <p className="text-gray-300">{pin.excerpt || 'No summary available.'}</p>
+                  <p className="text-gray-300">
+                    {pin?.type === 'image' 
+                      ? pin.image?.description 
+                      : pin.Webpage?.excerpt || pin?.excerpt || 'No summary available.'}
+                  </p>
                 </div>
               </div>
               <div className="mt-4">
@@ -258,13 +338,13 @@ const Page = ({ pinId, onClose }) => {
                   )}
                   {tags.map((tag) => (
                     <span
-                      key={tag.name}
+                      key={tag}
                       className="px-3 py-1 bg-gray-700 text-white rounded-full text-sm flex items-center"
                     >
-                      {tag.name}
+                      {tag}
                       <button
                         className="ml-2 text-gray-400 hover:text-white"
-                        onClick={() => handleRemoveTag(tag.name)}
+                        onClick={() => handleRemoveTag(tag)}
                       >
                         &times;
                       </button>

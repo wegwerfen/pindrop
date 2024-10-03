@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Settings, PanelLeftOpen, PanelLeftClose, Plus, Folder, Tag, Globe, Image, FileText } from 'lucide-react';
+import { Settings, PanelLeftOpen, PanelLeftClose, Plus, Folder, Tag, Globe, Image, FileText, Upload } from 'lucide-react';
 import Avatar from './Avatar';
 import AdminModal from './AdminModal'; // Add this import
+import axios from 'axios'; // Add this import
 
 const Toolbar = ({ 
   panelOpen, 
@@ -11,7 +12,8 @@ const Toolbar = ({
   handleLogout, 
   dropdownOpen,
   handleOpenSettingsModal,
-  user
+  user,
+  refreshHub
 }) => {
   const [addDropdownOpen, setAddDropdownOpen] = useState(false);
   const [webpageDropdownOpen, setWebpageDropdownOpen] = useState(false);
@@ -21,10 +23,18 @@ const Toolbar = ({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [adminModalOpen, setAdminModalOpen] = useState(false); // Add this state
+  const [imageDropdownOpen, setImageDropdownOpen] = useState(false);
+  const [imageUrl, setImageUrl] = useState('');
+  const [selectedFile, setSelectedFile] = useState(null);
+  const imageDropdownRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   const handleAddClick = (type) => {
     if (type === 'Webpage') {
       setWebpageDropdownOpen(true);
+    } else if (type === 'Image') {
+      setImageDropdownOpen(true);
     } else {
       // Handle other types
       console.log(`Adding new ${type}`);
@@ -55,6 +65,7 @@ const Toolbar = ({
       setWebpageUrl('');
       setWebpageDropdownOpen(false);
       setAddDropdownOpen(false);
+      refreshHub(); // Call refreshHub after successful save
     } catch (error) {
       console.error('Error saving webpage:', error);
       setError('Failed to save webpage. Please try again.');
@@ -73,6 +84,64 @@ const Toolbar = ({
     setDropdownOpen(false);
   };
 
+  const handleFileChange = (event) => {
+    const file = event.target.files[0];
+    if (file && ['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setSelectedFile(file);
+    } else {
+      alert('Please select a valid image file (jpg, png, or webp)');
+    }
+  };
+
+  const handleSaveImage = async () => {
+    if (!imageUrl && !selectedFile) return;
+
+    setIsUploading(true);
+    setError(null);
+
+    try {
+      let formData = new FormData();
+      formData.append('type', 'image');
+
+      if (selectedFile) {
+        formData.append('image', selectedFile);
+        console.log('Appended file:', selectedFile.name);
+      } else if (imageUrl) {
+        formData.append('url', imageUrl);
+        console.log('Appended URL:', imageUrl);
+      }
+
+      // Log form data
+      for (let [key, value] of formData.entries()) {
+        console.log(key, value);
+      }
+
+      const response = await axios.post('/api/pins', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      console.log('Image saved successfully:', response.data);
+      setImageUrl('');
+      setSelectedFile(null);
+      setImageDropdownOpen(false);
+      setAddDropdownOpen(false);
+      refreshHub(); // Call refreshHub after successful save
+    } catch (error) {
+      console.error('Error saving image:', error.response ? error.response.data : error.message);
+      setError('Failed to save image. Please try again.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleCancelImage = () => {
+    setImageUrl('');
+    setSelectedFile(null);
+    setImageDropdownOpen(false);
+  };
+
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (addDropdownRef.current && !addDropdownRef.current.contains(event.target)) {
@@ -80,6 +149,9 @@ const Toolbar = ({
       }
       if (webpageDropdownRef.current && !webpageDropdownRef.current.contains(event.target)) {
         setWebpageDropdownOpen(false);
+      }
+      if (imageDropdownRef.current && !imageDropdownRef.current.contains(event.target)) {
+        setImageDropdownOpen(false);
       }
     };
 
@@ -156,6 +228,53 @@ const Toolbar = ({
                     disabled={isLoading}
                   >
                     {isLoading ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            )}
+            {imageDropdownOpen && (
+              <div ref={imageDropdownRef} className="absolute left-full top-0 mt-2 ml-64 w-80 bg-gray-700 rounded-md shadow-lg p-4">
+                <input
+                  type="text"
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  placeholder="Enter image URL"
+                  className="w-full p-2 mb-4 bg-gray-600 text-white rounded"
+                />
+                <div className="flex items-center mb-4">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileChange}
+                    accept="image/jpeg,image/png,image/webp"
+                    className="hidden"
+                  />
+                  <button
+                    onClick={() => fileInputRef.current.click()}
+                    className="flex items-center px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  >
+                    <Upload size={16} className="mr-2" />
+                    Browse
+                  </button>
+                  {selectedFile && (
+                    <span className="ml-2 text-white">{selectedFile.name}</span>
+                  )}
+                </div>
+                {error && <p className="text-red-500 mb-2">{error}</p>}
+                <div className="flex justify-end space-x-2">
+                  <button
+                    onClick={handleCancelImage}
+                    className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
+                    disabled={isUploading}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleSaveImage}
+                    className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                    disabled={isUploading}
+                  >
+                    {isUploading ? 'Saving...' : 'Save'}
                   </button>
                 </div>
               </div>

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { signOut, useSessionContext } from "supertokens-auth-react/recipe/session";
 import { SessionAuth } from "supertokens-auth-react/recipe/session";
@@ -22,6 +22,7 @@ const Hub = () => {
   const [selectedPin, setSelectedPin] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const handleLogout = async () => {
     await signOut();
@@ -50,6 +51,10 @@ const Hub = () => {
       console.error('Error updating user data:', error);
     }
   };
+
+  const refreshHub = useCallback(() => {
+    setRefreshTrigger(prev => prev + 1);
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -121,7 +126,7 @@ const Hub = () => {
     if (user) {
       fetchPins();
     }
-  }, [user]);
+  }, [user, refreshTrigger]); // Add refreshTrigger to the dependency array
 
   const handleOpenPage = (pin) => {
     setSelectedPin(pin.id);
@@ -161,6 +166,7 @@ const Hub = () => {
             dropdownOpen={dropdownOpen}
             handleOpenSettingsModal={handleOpenSettingsModal}
             user={user}
+            refreshHub={refreshHub}
           />
           <main className={`flex-1 p-8 overflow-y-auto transition-all duration-300 ${panelOpen ? 'ml-64' : 'ml-16'}`}>
             <h1 className="text-3xl font-bold mb-6">Welcome to Your Hub</h1>
@@ -200,7 +206,7 @@ const Hub = () => {
         />
       )}
       {selectedPin && (
-        <Page pinId={selectedPin} onClose={handleClosePage} />
+        <Page pinId={selectedPin} onClose={handleClosePage} refreshHub={refreshHub} />
       )}
     </SessionAuth>
   );
