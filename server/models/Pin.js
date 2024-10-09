@@ -5,7 +5,7 @@ export default (sequelize) => {
     static associate(models) {
       Pin.belongsTo(models.User, { foreignKey: 'userId' });
       Pin.hasOne(models.Webpage, { foreignKey: 'pinId' });
-      Pin.hasMany(models.Note, { foreignKey: 'pinId' });
+      Pin.hasOne(models.Note, { foreignKey: 'pinId' });
       Pin.hasMany(models.Image, { foreignKey: 'pinId' });
       Pin.belongsToMany(models.Tags, { through: 'Item_Tags', foreignKey: 'pinId' });
     }
@@ -25,17 +25,13 @@ export default (sequelize) => {
       type: DataTypes.STRING,
       allowNull: false,
     },
+    classification: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
     title: {
       type: DataTypes.STRING,
       allowNull: false,
-    },
-    created: {
-      type: DataTypes.DATE,
-      allowNull: true,
-    },
-    updated: {
-      type: DataTypes.DATE,
-      allowNull: true,
     },
     thumbnail: {
       type: DataTypes.STRING,
@@ -45,6 +41,7 @@ export default (sequelize) => {
     sequelize,
     modelName: 'Pin',
     tableName: 'Pins',
+    timestamps: true,
   });
 
   return Pin;

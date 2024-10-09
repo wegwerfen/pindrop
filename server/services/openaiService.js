@@ -1,6 +1,6 @@
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
-import { WEBPAGE_ANALYSIS_PROMPT, IMAGE_ANALYSIS_PROMPT } from '../utils/prompts.js';
+import { WEBPAGE_ANALYSIS_PROMPT, IMAGE_ANALYSIS_PROMPT, NOTE_ANALYSIS_PROMPT } from '../utils/prompts.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { dirname } from 'path';
@@ -125,6 +125,39 @@ export const analyzeImage = async (buffer, userId) => {
     throw error;
   }
 };
+
+export async function analyzeNote(text) {
+  const prompt = `${NOTE_ANALYSIS_PROMPT} ${text}`;
+  
+  try {
+    const response = await fetch(OPENAI_API_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: OPENAI_API_MODEL,
+        messages: [
+          { role: 'system', content: 'You are a helpful assistant that analyzes note content.' },
+          { role: 'user', content: prompt }
+        ],
+        max_tokens: 300,
+        temperature: 0.7,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API request failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
+    return JSON.parse(data.choices[0].message.content.trim());
+  } catch (error) {
+    console.error('Error analyzing note:', error);
+    throw error;
+  }
+}
 
 function getMimeType(extension) {
   const mimeTypes = {

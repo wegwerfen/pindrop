@@ -150,6 +150,10 @@ const Hub = () => {
     };
   }, [selectedPin]);
 
+  const handleAddNote = (newPinId) => {
+    setSelectedPin(newPinId);
+  };
+
   return (
     <SessionAuth>
       <div className="h-screen flex flex-col bg-gray-900 text-white">
@@ -167,6 +171,8 @@ const Hub = () => {
             handleOpenSettingsModal={handleOpenSettingsModal}
             user={user}
             refreshHub={refreshHub}
+            setSelectedPin={setSelectedPin} // Pass this function to Toolbar
+            onAddNote={handleAddNote} // Pass the new handler
           />
           <main className={`flex-1 p-8 overflow-y-auto transition-all duration-300 ${panelOpen ? 'ml-64' : 'ml-16'}`}>
             <h1 className="text-3xl font-bold mb-6">Welcome to Your Hub</h1>
@@ -206,7 +212,11 @@ const Hub = () => {
         />
       )}
       {selectedPin && (
-        <Page pinId={selectedPin} onClose={handleClosePage} refreshHub={refreshHub} />
+        <Page 
+          pinId={selectedPin} 
+          onClose={() => setSelectedPin(null)} 
+          refreshHub={refreshHub} 
+        />
       )}
     </SessionAuth>
   );

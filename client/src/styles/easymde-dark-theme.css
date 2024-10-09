@@ -1,0 +1,196 @@
+.EasyMDEContainer .CodeMirror {
+    background-color: #1f2937;
+    color: #e5e7eb;
+    border: 1px solid #4b5563;
+    flex: 1;
+    height: 100% !important;
+    min-height: 0 !important;
+  }
+  
+  .EasyMDEContainer .editor-toolbar {
+    background-color: #374151;
+    border-top: 1px solid #4b5563;
+    border-left: 1px solid #4b5563;
+    border-right: 1px solid #4b5563;
+  }
+  
+  .EasyMDEContainer .editor-toolbar button {
+    color: #e5e7eb !important;
+  }
+  
+  .EasyMDEContainer .editor-toolbar button:hover,
+  .editor-toolbar button.active {
+    background: #4b5563;
+  }
+  
+  .EasyMDEContainer .CodeMirror-cursor {
+    border-color: #e5e7eb;
+  }
+  
+  .EasyMDEContainer .CodeMirror-selected {
+    background: #4b5563 !important;
+  }
+  
+  .EasyMDEContainer .CodeMirror-line::selection,
+  .EasyMDEContainer .CodeMirror-line > span::selection,
+  .EasyMDEContainer .CodeMirror-line > span > span::selection {
+    background: #6b7280;
+  }
+  
+  .EasyMDEContainer .editor-preview {
+    background-color: #1f2937;
+    color: #e5e7eb;
+  }
+  
+  .EasyMDEContainer .cm-s-easymde .cm-header {
+    color: #93c5fd;
+  }
+  
+  .EasyMDEContainer .cm-s-easymde .cm-url {
+    color: #6ee7b7;
+  }
+  
+  .EasyMDEContainer .cm-s-easymde .cm-link {
+    color: #93c5fd;
+  }
+  
+  .EasyMDEContainer .cm-s-easymde .cm-quote {
+    color: #d1d5db;
+    font-style: italic;
+  }
+  
+  .EasyMDEContainer .cm-s-easymde .cm-negative {
+    color: #fca5a5;
+  }
+  
+  .EasyMDEContainer .cm-s-easymde .cm-positive {
+    color: #6ee7b7;
+  }
+  
+  .EasyMDEContainer .cm-s-easymde .cm-strong {
+    color: #fcd34d;
+  }
+  
+  .EasyMDEContainer .cm-s-easymde .cm-em {
+    color: #c4b5fd;
+  }
+
+.editor-wrapper {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  height: 100%;
+}
+
+.EasyMDEContainer {
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  height: 100%;
+}
+
+.EasyMDEContainer .CodeMirror {
+  flex: 1;
+  height: 100% !important;
+  min-height: 0 !important;
+}
+
+.EasyMDEContainer .editor-toolbar {
+  flex-shrink: 0;
+  width: 100%;
+}
+
+.EasyMDEContainer .CodeMirror-scroll {
+  flex: 1;
+  height: 100% !important;
+  min-height: 0 !important;
+}
+
+.EasyMDEContainer.sided--no-fullscreen {
+  flex-direction: row;
+}
+
+.EasyMDEContainer.sided--no-fullscreen .CodeMirror-sided,
+.EasyMDEContainer.sided--no-fullscreen .editor-preview-side {
+  flex: 1;
+  height: 100%;
+  overflow-y: auto;
+  min-height: 0 !important;
+}
+
+.editor-preview-side {
+  flex: 1;
+  height: 100%;
+  overflow: auto;
+}
+
+/* Ensure the editor-wrapper fills its parent */
+.editor-wrapper {
+  height: 100%;
+}
+
+/* Adjust colors to match your theme */
+.EasyMDEContainer .CodeMirror,
+.EasyMDEContainer .editor-preview-side {
+  background-color: #1f2937;
+  color: #e5e7eb;
+  border: 1px solid #4b5563;
+}
+
+/* ... (keep the rest of your existing color styles) ... */
+
+/* Increase specificity by targeting parent classes */
+.editor-wrapper .EasyMDEContainer .CodeMirror-scroll {
+  flex: 1;
+  height: 100% !important;
+  min-height: 0 !important;
+}
+
+/* Hide the scrollbar on the editor side if not needed */
+.EasyMDEContainer .CodeMirror-scroll::-webkit-scrollbar {
+  width: 0px;
+  background: transparent; /* make scrollbar invisible */
+}
+
+.EasyMDEContainer .CodeMirror-scroll {
+  scrollbar-width: none; /* for Firefox */
+}
+
+.EasyMDEContainer .CodeMirror-scroll {
+  overflow-y: auto !important; /* Only show scrollbar when needed */
+}
+
+/* Override CodeMirror-sizer */
+.EasyMDEContainer .CodeMirror-sizer {
+  height: 100% !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-sizing: border-box;
+}
+
+/* Override CodeMirror-lines to prevent extra spacing */
+.EasyMDEContainer .CodeMirror-lines {
+  padding: 0 !important;
+  margin: 0 !important;
+  line-height: 1.5; /* Adjust as needed */
+  box-sizing: border-box;
+}
+
+/* Ensure CodeMirror-cursors do not add height */
+.EasyMDEContainer .CodeMirror-cursors {
+  height: 100% !important;
+}
+
+/* Prevent CodeMirror from adding bottom padding */
+.EasyMDEContainer .CodeMirror-lines > div {
+  padding-bottom: 0 !important;
+}
+
+/* Adjust pre elements within CodeMirror */
+.EasyMDEContainer .CodeMirror-line pre {
+  margin: 0 !important;
+  padding: 0 !important;
+  line-height: 1.5; /* Same as .CodeMirror-lines */
+  box-sizing: border-box;
+}

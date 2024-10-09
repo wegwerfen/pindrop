@@ -18,22 +18,22 @@ export default (sequelize) => {
       allowNull: false,
     },
     content: {
-      type: DataTypes.TEXT,
+      type: DataTypes.TEXT('long'),
       allowNull: true,
     },
     textContent: {
-      type: DataTypes.TEXT,
+      type: DataTypes.TEXT('long'),
       allowNull: true,
     },
     cleanContent: {
-      type: DataTypes.TEXT('long'),  // Change this line
+      type: DataTypes.TEXT('long'),
       allowNull: true,
     },
     length: {
       type: DataTypes.INTEGER,
       allowNull: true,
     },
-    excerpt: {
+    summary: {  
       type: DataTypes.TEXT,
       allowNull: true,
     },
@@ -61,11 +61,12 @@ export default (sequelize) => {
       type: DataTypes.STRING,
       allowNull: true,
     },
-    notes: {
+    classification: {
       type: DataTypes.STRING,
       allowNull: true,
     },
-    classification: {
+    // Rename 'notes' to 'comments'
+    comments: {  
       type: DataTypes.STRING,
       allowNull: true,
     },

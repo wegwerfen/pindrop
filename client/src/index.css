@@ -24,3 +24,9 @@ body {
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(96, 96, 96, 0.8); /* Lighter hover color */
 }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}

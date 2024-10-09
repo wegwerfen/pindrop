@@ -36,4 +36,17 @@ Format:
 }
 Image Data:
 `;
-// Add more prompts here as needed
+export const NOTE_ANALYSIS_PROMPT = `Give a short, one paragraph summary of the following note, suggest a title for the note, and suggest a maximum of 6 tags for the note. Use the following format:
+{
+"summary": "",
+"title": "",
+"tags": [
+"",
+"",
+"",
+"",
+""
+]
+}
+
+text:`;

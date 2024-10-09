@@ -71,7 +71,7 @@ const Card = ({ item, onClick }) => {
       <div className="p-4">
         <h3 className="text-lg font-semibold mb-2 truncate">{item.title}</h3>
         <p className="text-sm text-gray-400 capitalize">{item.type}</p>
-        <p className="text-xs text-gray-500 mt-2">Created: {new Date(item.created).toLocaleDateString()}</p>
+        <p className="text-xs text-gray-500 mt-2">Created: {new Date(item.createdAt).toLocaleDateString()}</p>
       </div>
       {isHovered && item.type === 'webpage' && item.url && (
         <div 

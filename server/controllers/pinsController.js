@@ -9,7 +9,7 @@ import { constants } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import models from '../models/index.js';
-import { analyzeWebpage, analyzeImage } from '../services/openaiService.js';
+import { analyzeWebpage, analyzeImage, analyzeNote } from '../services/openaiService.js';
 import { Op } from 'sequelize';
 import sharp from 'sharp';
 import multer from 'multer';
@@ -21,7 +21,8 @@ import {
   getUserImagePath,
   getUserThumbnailPath,
   getUserScreenshotPath,
-  UPLOADS_DIR
+  UPLOADS_DIR,
+  getUserScreenshotsDir
 } from '../utils/paths.js';
 import { promisify } from 'util';
 import { rm } from 'fs/promises';
@@ -127,7 +128,7 @@ console.log('Analysis:', analysis);
       width: metadata.width,
       height: metadata.height,
       type: metadata.format,
-      description: analysis.description,
+      summary: analysis.summary || analysis.description, // New field
     });
 
     // Ensure consistent permissions
@@ -192,7 +193,7 @@ export const handleImageUrl = async (userId, imageUrl) => {
       width: metadata.width,
       height: metadata.height,
       type: metadata.format,
-      description: analysis.description || 'No description available',
+      summary: analysis.summary || analysis.description, // New field
     });
 
     console.log('Handling tags');
@@ -256,6 +257,20 @@ export const createPin = async (req, res) => {
       if (!url) {
         return res.status(400).json({ error: 'No URL provided for webpage' });
       }
+
+      // Create a skeleton pin
+      const skeletonTitle = 'Loading...';
+      pin = await Pin.create({
+        userId,
+        type,
+        classification: type, // Set classification same as type initially
+        title: skeletonTitle,
+      });
+
+      // Get the last inserted ID
+      const [result] = await Pin.sequelize.query('SELECT LAST_INSERT_ID() as id');
+      const pinId = result[0].id;
+
       // Existing webpage handling code
       const browser = await puppeteer.launch({ headless: true });
       const page = await browser.newPage();
@@ -263,28 +278,30 @@ export const createPin = async (req, res) => {
       await page.goto(url, { waitUntil: 'networkidle2' });
 
       // Create directories for user if they don't exist
-      const screenshotDir = getUserImagesDir(userId); // Update if screenshots are stored differently
+      const screenshotDir = getUserScreenshotsDir(userId);
       const thumbnailDir = getUserThumbnailsDir(userId);
       await fs.mkdir(screenshotDir, { recursive: true });
       await fs.mkdir(thumbnailDir, { recursive: true });
 
-      // Generate filenames
-      const baseFilename = `${Date.now()}`;
+      // Generate filenames using pinId
+      const baseFilename = `${pinId}`;
       const fullScreenshotFilename = `${baseFilename}-full.webp`;
       const thumbnailFilename = `${baseFilename}-thumb.webp`;
 
       // Capture full page screenshot
       await page.screenshot({
-        path: getUserImagePath(userId, fullScreenshotFilename),
+        path: getUserScreenshotPath(userId, fullScreenshotFilename),
         fullPage: true,
         type: 'webp',
+        quality: 80 // Adjust quality as needed
       });
 
-      // Capture viewport screenshot
+      // Capture viewport screenshot for thumbnail
       await page.screenshot({
         path: getUserThumbnailPath(userId, thumbnailFilename),
         fullPage: false,
         type: 'webp',
+        quality: 80 // Adjust quality as needed
       });
 
       // Grab the page content
@@ -334,14 +351,12 @@ export const createPin = async (req, res) => {
       // Analyze webpage content
       const analysis = await analyzeWebpage(article.textContent);
 
-      // Create a new Pin
-      pin = await Pin.create({
-        userId,
-        type,
+      // Update the existing Pin with additional fields
+      await pin.update({
         title: article.title || url,
         thumbnail: thumbnailFilename,
+        classification: analysis.classification, // Update classification based on analysis
       });
-
 
       // Handle tags
       if (analysis.tags && analysis.tags.length > 0) {
@@ -360,7 +375,8 @@ export const createPin = async (req, res) => {
           textContent: article.textContent || '',
           cleanContent: Html,
           length: article.length || 0,
-          excerpt: analysis.summary,
+          summary: analysis.summary,
+          comments: analysis.comments || '', // Updated field
           byline: article.byline || '',
           siteName: article.siteName || '',
           url: url,
@@ -374,6 +390,19 @@ export const createPin = async (req, res) => {
         console.error('Error creating webpage:', webpageError);
         throw webpageError;
       }
+    } else if (type === 'note') {
+      pin = await Pin.create({
+        userId,
+        type: 'note',
+        classification: 'note',
+        title: 'New Note',
+      });
+
+      await Note.create({
+        pinId: pin.id,
+        content: '',
+        summary: '',
+      });
     } else {
       return res.status(400).json({ error: 'Invalid pin type' });
     }
@@ -385,32 +414,181 @@ export const createPin = async (req, res) => {
   }
 };
 
-// Function to update pin notes - example (ensure this remains unchanged)
-export const updatePinNotes = async (req, res) => {
+export const updatePinNote = async (req, res) => {
   const { id } = req.params;
-  const { notes } = req.body;
+  const pinId = parseInt(id, 10);
+  const { content, title, summary, tags } = req.body;
   const userId = req.session.getUserId();
 
   try {
     const pin = await Pin.findOne({
-      where: { id, userId },
-      include: [{ model: Webpage }],
+      where: { id: pinId, userId },
+      include: [{ model: Note }, { model: Tags }],
     });
+    console.log('Pin found:', pin);
+    if (!pin) {
+      return res.status(404).json({ error: 'Pin not found' });
+    }
+
+    if (pin.type !== 'note') {
+      return res.status(400).json({ error: 'This pin is not a note' });
+    }
+
+    // Analyze the note content
+    const analysis = await analyzeNote(content);
+    console.log('Note analysis:', analysis);
+
+    // Update or create the Note
+    const [note, created] = await Note.findOrCreate({
+      where: { pinId: pin.id },
+      defaults: { 
+        content, 
+        summary: analysis.summary || summary 
+      }
+    });
+
+    if (!created) {
+      await note.update({ 
+        content, 
+        summary: analysis.summary || summary 
+      });
+    }
+
+    // Update the Pin's title
+    await pin.update({
+      title: analysis.title || title
+    });
+
+    console.log(created ? 'New note created' : 'Existing note updated');
+
+    // Handle tags
+    if (analysis.tags && analysis.tags.length > 0) {
+      const tagNames = analysis.tags.map(tag => tag.trim().toLowerCase());
+      const tags = await Promise.all(tagNames.map(name => 
+        Tags.findOrCreate({ where: { name } })
+      ));
+      await pin.setTags(tags.map(tag => tag[0]));
+    }
+
+    // Fetch the updated pin with its associations
+    const updatedPin = await Pin.findOne({
+      where: { id: pinId, userId },
+      include: [
+        { model: Note },
+        { model: Tags, through: { attributes: [] }, attributes: ['name'] }
+      ],
+    });
+
+    res.status(200).json({ 
+      message: 'Note updated successfully',
+      pin: {
+        id: updatedPin.id,
+        title: updatedPin.title,
+        type: updatedPin.type,
+        content: updatedPin.Note.content, // Return just the content
+        summary: updatedPin.Note.summary,
+        tags: updatedPin.Tags.map(tag => tag.name),
+      }
+    });
+  } catch (error) {
+    console.error('Error updating note:', error);
+    res.status(500).json({ error: 'Failed to update note' });
+  }
+};
+
+export const updatePinComments = async (req, res) => {
+  const { id } = req.params;
+  const pinId = parseInt(id, 10); // Ensure pinId is a number
+  const { comments } = req.body;   // Renamed from 'notes' to 'comments'
+  const userId = req.session.getUserId();
+
+  try {
+    const pin = await Pin.findOne({
+      where: { id: pinId, userId },
+      include: [
+        { model: Webpage },
+        { model: Image },
+        { model: Note },
+        { model: Tags },
+      ],
+    });
+
+    console.log('Pin found:', pin);
 
     if (!pin) {
       return res.status(404).json({ error: 'Pin not found' });
     }
 
-    if (pin.type !== 'webpage') {
-      return res.status(400).json({ error: 'Notes can only be added to webpage pins' });
+    // Update comments based on pin type
+    switch (pin.type) {
+      case 'webpage':
+        if (pin.Webpage) {
+          await pin.Webpage.update({ comments });
+          console.log('Webpage comments updated');
+        } else {
+          return res.status(400).json({ error: 'Webpage data not found for this pin' });
+        }
+        break;
+
+      case 'image':
+        if (pin.Images && pin.Images.length > 0) {
+          // Assuming you want to update comments for all associated images
+          await Promise.all(pin.Images.map(image => image.update({ comments })));
+          console.log('Image comments updated');
+        } else {
+          return res.status(400).json({ error: 'No images found for this pin' });
+        }
+        break;
+
+      case 'note':
+        if (pin.Note) {
+          await pin.Note.update({ comments });
+          console.log('Note comments updated');
+        } else {
+          return res.status(400).json({ error: 'Note data not found for this pin' });
+        }
+        break;
+
+      default:
+        return res.status(400).json({ error: 'Unsupported pin type' });
     }
 
-    await pin.Webpage.update({ notes });
+    // Optionally, handle tags if needed
+    // const { tags } = req.body;
+    // if (tags && tags.length > 0) {
+    //   const tagNames = tags.map(tag => tag.trim().toLowerCase());
+    //   const tagsInstances = await Promise.all(tagNames.map(name => 
+    //     Tags.findOrCreate({ where: { name } })
+    //   ));
+    //   await pin.setTags(tagsInstances.map(tag => tag[0]));
+    // }
 
-    res.status(200).json({ message: 'Notes updated successfully' });
+    // Fetch the updated pin with its associations
+    const updatedPin = await Pin.findOne({
+      where: { id: pinId, userId },
+      include: [
+        { model: Webpage },
+        { model: Image },
+        { model: Note },
+        { model: Tags, through: { attributes: [] }, attributes: ['name'] },
+      ],
+    });
+
+    res.status(200).json({ 
+      message: 'Comments updated successfully',
+      pin: {
+        ...updatedPin.toJSON(),
+        tags: updatedPin.Tags.map(tag => tag.name),
+        // Include comments based on pin type
+        comments: pin.type === 'webpage' ? updatedPin.Webpage.comments :
+                  pin.type === 'image' ? updatedPin.Images.map(img => img.comments) :
+                  pin.type === 'note' ? updatedPin.Note.comments :
+                  null,
+      }
+    });
   } catch (error) {
-    console.error('Error updating notes:', error);
-    res.status(500).json({ error: 'Failed to update notes' });
+    console.error('Error updating comments:', error);
+    res.status(500).json({ error: 'Failed to update comments' });
   }
 };
 
@@ -428,7 +606,11 @@ export const getPinDetails = async (req, res) => {
         },
         {
           model: Image,
-          attributes: ['filePath', 'width', 'height', 'type', 'description'],
+          attributes: ['filePath', 'width', 'height', 'type', 'summary', 'comments'], // Include 'comments'
+        },
+        {
+          model: Note,
+          attributes: ['content', 'summary', 'comments'], // Include 'comments'
         },
         {
           model: Tags,
@@ -436,6 +618,7 @@ export const getPinDetails = async (req, res) => {
           attributes: ['name'],
         },
       ],
+      attributes: { include: ['classification'] }, // Include classification in the query
     });
 
     if (!pin) {
@@ -642,7 +825,7 @@ export const getAllPins = async (req, res) => {
     const pins = await Pin.findAll({
       where: { userId },
       order: [['createdAt', 'DESC']],
-      attributes: ['id', 'userId', 'type', 'title', 'thumbnail', 'createdAt'],
+      attributes: ['id', 'userId', 'type', 'classification', 'title', 'thumbnail', 'createdAt'],
       include: [{
         model: Webpage,
         attributes: ['url'],

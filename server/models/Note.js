@@ -4,6 +4,7 @@ export default (sequelize) => {
   class Note extends Model {
     static associate(models) {
       Note.belongsTo(models.Pin, { foreignKey: 'pinId' });
+      Note.belongsToMany(models.Tags, { through: 'NoteTags' });
     }
   }
 
@@ -22,6 +23,11 @@ export default (sequelize) => {
       allowNull: false,
     },
     summary: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    // Add 'comments' field
+    comments: {  
       type: DataTypes.TEXT,
       allowNull: true,
     },

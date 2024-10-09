@@ -33,7 +33,12 @@ export default (sequelize) => {
       type: DataTypes.STRING,
       allowNull: true,
     },
-    description: {
+    summary: {  
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    // Add 'comments' field
+    comments: {  
       type: DataTypes.TEXT,
       allowNull: true,
     },

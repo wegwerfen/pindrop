@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Settings, PanelLeftOpen, PanelLeftClose, Plus, Folder, Tag, Globe, Image, FileText, Upload } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import axios from '../axiosConfig';
 import Avatar from './Avatar';
-import AdminModal from './AdminModal'; // Add this import
-import axios from 'axios'; // Add this import
+import AdminModal from './AdminModal';
+import Page from './Page'; // Import the Page component
 
 const Toolbar = ({ 
   panelOpen, 
@@ -13,7 +15,8 @@ const Toolbar = ({
   dropdownOpen,
   handleOpenSettingsModal,
   user,
-  refreshHub
+  refreshHub,
+  onAddNote // New prop for handling note addition
 }) => {
   const [addDropdownOpen, setAddDropdownOpen] = useState(false);
   const [webpageDropdownOpen, setWebpageDropdownOpen] = useState(false);
@@ -22,19 +25,33 @@ const Toolbar = ({
   const webpageDropdownRef = useRef(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [adminModalOpen, setAdminModalOpen] = useState(false); // Add this state
+  const [adminModalOpen, setAdminModalOpen] = useState(false);
   const [imageDropdownOpen, setImageDropdownOpen] = useState(false);
   const [imageUrl, setImageUrl] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const imageDropdownRef = useRef(null);
   const fileInputRef = useRef(null);
   const [isUploading, setIsUploading] = useState(false);
+  const navigate = useNavigate();
 
-  const handleAddClick = (type) => {
+  const handleAddClick = async (type) => {
     if (type === 'Webpage') {
       setWebpageDropdownOpen(true);
     } else if (type === 'Image') {
       setImageDropdownOpen(true);
+    } else if (type === 'Note') {
+      try {
+        const response = await axios.post('/api/pins', { type: 'note' });
+        const newPin = response.data.pin;
+        setAddDropdownOpen(false);
+        onAddNote(newPin.id); // Call the onAddNote function passed from Hub
+        if (refreshHub) {
+          refreshHub();
+        }
+      } catch (error) {
+        console.error('Error creating new note:', error);
+        // Handle error (e.g., show an error message to the user)
+      }
     } else {
       // Handle other types
       console.log(`Adding new ${type}`);
